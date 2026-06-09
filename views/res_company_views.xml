@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         res.company — Form view extension
+         Adds official_company_id field and is_official_company info banner.
+         ================================================================ -->
+    <record id="view_res_company_form_dual_bookkeeping" model="ir.ui.view">
+        <field name="name">res.company.form.dual.bookkeeping</field>
+        <field name="model">res.company</field>
+        <field name="inherit_id" ref="base.view_company_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Banner shown when this company IS the official mirror target -->
+            <xpath expr="//sheet" position="before">
+                <div class="alert alert-info o_dual_bookkeeping_official_banner"
+                     role="alert"
+                     invisible="not is_official_company">
+                    <strong>&#128218; Official Books Company</strong> —
+                    This company is configured as an Official Books mirror target.
+                    Journal entries mirrored from operating companies will be posted
+                    here using the master sequences.
+                    <field name="is_official_company" invisible="1"/>
+                </div>
+            </xpath>
+
+            <!-- official_company_id field — added in the General Information tab -->
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="official_company_id"
+                       options="{'no_create': True}"
+                       help="Official transactions from this company will be mirrored to the selected company."/>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

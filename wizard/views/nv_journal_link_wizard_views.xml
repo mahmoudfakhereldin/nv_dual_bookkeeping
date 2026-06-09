@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         Journal Linking Wizard — Form View
+         ================================================================ -->
+    <record id="view_nv_journal_link_wizard_form" model="ir.ui.view">
+        <field name="name">nv.journal.link.wizard.form</field>
+        <field name="model">nv.journal.link.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Link Official Journals">
+
+                <!-- Header info banner -->
+                <div class="alert alert-info" role="alert">
+                    <strong>Linking journals from </strong>
+                    <field name="company_id" readonly="1" nolabel="1"
+                           options="{'no_open': True}"/>
+                    <strong> → </strong>
+                    <field name="official_company_id" readonly="1" nolabel="1"
+                           options="{'no_open': True}"/>
+                    <br/>
+                    Use <em>Auto-Match by Code</em> or <em>Auto-Match by Name</em>
+                    to pre-fill the Official Journal column, then click
+                    <strong>Confirm</strong> to save all mappings.
+                </div>
+
+                <sheet>
+                    <!-- Action buttons row above the list -->
+                    <div class="o_row mb-2">
+                        <button name="action_auto_match_by_code"
+                                type="object"
+                                string="Auto-Match by Code"
+                                class="btn btn-secondary"/>
+                        <button name="action_auto_match_by_name"
+                                type="object"
+                                string="Auto-Match by Name"
+                                class="btn btn-secondary ms-2"/>
+                    </div>
+
+                    <!-- Editable journal mapping list -->
+                    <field name="line_ids" nolabel="1">
+                        <list editable="bottom" decoration-success="match_status == 'Matched'"
+                              decoration-warning="match_status == 'Code Match Available'"
+                              decoration-muted="match_status == 'Unmatched'">
+                            <field name="journal_id" readonly="1" string="Main Journal"/>
+                            <field name="journal_code" readonly="1" string="Code" width="80px"/>
+                            <field name="official_journal_id" string="Official Journal"
+                                   options="{'no_create': True, 'no_open': True}"/>
+                            <field name="match_status" readonly="1" string="Status"/>
+                        </list>
+                    </field>
+                </sheet>
+
+                <!-- Footer buttons -->
+                <footer>
+                    <button name="action_confirm"
+                            type="object"
+                            string="Confirm"
+                            class="btn btn-primary"
+                            data-hotkey="q"/>
+                    <button string="Cancel"
+                            class="btn btn-secondary"
+                            special="cancel"/>
+                </footer>
+
+            </form>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         Action — opens wizard
+         ================================================================ -->
+    <record id="action_nv_journal_link_wizard" model="ir.actions.act_window">
+        <field name="name">Link Official Journals</field>
+        <field name="res_model">nv.journal.link.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="account.model_account_journal"/>
+        <field name="binding_view_types">list</field>
+    </record>
+
+</odoo>

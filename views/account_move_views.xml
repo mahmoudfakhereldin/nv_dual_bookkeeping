@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         account.move — Form view extension
+         ================================================================ -->
+    <record id="view_account_move_form_dual_bookkeeping" model="ir.ui.view">
+        <field name="name">account.move.form.dual.bookkeeping</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="arch" type="xml">
+
+            <!-- 1. Official-company info banner (above the form body) -->
+            <!-- Visible only to members of group_view_dual_meta in the official company -->
+            <xpath expr="//sheet" position="before">
+                <div class="alert alert-info o_dual_bookkeeping_banner"
+                     role="alert"
+                     invisible="not company_is_official_company or not show_dual_bookkeeping_ui">
+                    <strong>&#128215; Official Books Company</strong> —
+                    All transactions in this company are Official and consume the master sequence.
+                </div>
+            </xpath>
+
+            <!-- 2. Sync smart buttons in the stat-button box -->
+            <!-- Gated by show_dual_bookkeeping_ui so auditors in the official company
+                 do not see internal sync state information. -->
+            <xpath expr="//div[hasclass('oe_button_box')]" position="inside">
+
+                <!-- Synced -->
+                <button type="object" name="action_view_sync_logs"
+                        class="oe_stat_button" icon="fa-check-circle text-success"
+                        invisible="sync_state != 'synced' or not is_official or not show_dual_bookkeeping_ui">
+                    <div class="o_stat_info">
+                        <span class="o_stat_text text-success">Synced &#10003;</span>
+                        <span class="o_stat_value">
+                            <field name="sync_state" invisible="1"/>
+                        </span>
+                    </div>
+                </button>
+
+                <!-- Sync Error -->
+                <button type="object" name="action_view_sync_logs"
+                        class="oe_stat_button" icon="fa-exclamation-circle text-danger"
+                        invisible="sync_state != 'error' or not is_official or not show_dual_bookkeeping_ui">
+                    <div class="o_stat_info">
+                        <span class="o_stat_text text-danger">Sync Error</span>
+                    </div>
+                </button>
+
+                <!-- Not Synced (is_official True but no log yet) -->
+                <button type="object" name="action_view_sync_logs"
+                        class="oe_stat_button" icon="fa-clock-o text-warning"
+                        invisible="sync_state or not is_official or not show_dual_bookkeeping_ui">
+                    <div class="o_stat_info">
+                        <span class="o_stat_text text-warning">Not Synced</span>
+                    </div>
+                </button>
+
+            </xpath>
+
+            <!-- 3. O/NO toggle — inserted after the journal_id field -->
+            <xpath expr="//field[@name='journal_id']" position="after">
+
+                <!-- Hidden fields needed for visibility logic -->
+                <field name="is_mirror" invisible="1"/>
+                <field name="company_is_official_company" invisible="1"/>
+                <field name="company_official_company_id" invisible="1"/>
+                <field name="sync_state" invisible="1"/>
+                <field name="dual_sequence_label" invisible="1"/>
+                <field name="show_dual_bookkeeping_ui" invisible="1"/>
+
+                <!-- The entire badge/toggle block is hidden from users without
+                     group_view_dual_meta when they are in the official company. -->
+                <div class="o_dual_bookkeeping_badge d-flex align-items-center gap-2 mt-1"
+                     invisible="not show_dual_bookkeeping_ui">
+
+                    <!-- Official badge -->
+                    <span class="badge text-bg-success fs-6"
+                          invisible="not is_official or is_mirror">
+                        &#10003; Official
+                    </span>
+
+                    <!-- Non-Official badge (never shown in the official company) -->
+                    <span class="badge text-bg-warning fs-6"
+                          invisible="is_official or is_mirror or company_is_official_company">
+                        &#9888; Non-Official
+                    </span>
+
+                    <!-- Mirror Entry badge (read-only, shown when is_mirror) -->
+                    <span class="badge text-bg-primary fs-6"
+                          invisible="not is_mirror">
+                        &#128279; Mirror Entry
+                    </span>
+
+                    <!-- Editable toggle: hidden in official company, mirror entries, and after posting -->
+                    <field name="is_official"
+                           widget="boolean_toggle"
+                           nolabel="1"
+                           invisible="is_mirror or state in ('posted', 'cancel') or company_is_official_company"
+                           readonly="state in ('posted', 'cancel') or is_mirror or company_is_official_company"/>
+
+                    <!-- Explicit-set tracker (hidden) -->
+                    <field name="is_official_set" invisible="1"/>
+                </div>
+
+                <!-- Source reference (mirror entries only) — hidden from auditors -->
+                <div invisible="not is_mirror or not source_move_ref or not show_dual_bookkeeping_ui"
+                     class="text-muted small">
+                    Source: <field name="source_move_ref" readonly="1" nolabel="1"/>
+                </div>
+
+            </xpath>
+
+            <!-- 4. Manual Sync button in the form header -->
+            <xpath expr="//header" position="inside">
+                <button name="action_manual_sync"
+                        type="object"
+                        string="&#8635; Sync to Official"
+                        class="btn btn-secondary"
+                        invisible="not is_official or is_mirror or state != 'posted' or sync_state == 'synced' or not company_official_company_id"
+                        groups="nv_dual_bookkeeping.group_sync_manager"/>
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- ================================================================
+         account.move — List view extension
+         Adds is_official colored badge column.
+         ================================================================ -->
+    <record id="view_account_move_list_dual_bookkeeping" model="ir.ui.view">
+        <field name="name">account.move.list.dual.bookkeeping</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_tree"/>
+        <field name="arch" type="xml">
+
+            <xpath expr="//list" position="attributes">
+                <attribute name="decoration-info">is_mirror</attribute>
+            </xpath>
+
+            <!-- Insert after the 'name' column (sequence/reference) -->
+            <!-- Column gated by group_view_dual_meta so external auditors in
+                 the official company never see the O/NO classification. -->
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="dual_sequence_label"
+                       string="O/NO"
+                       optional="show"
+                       decoration-success="is_official == True"
+                       decoration-warning="is_official == False"
+                       widget="badge"
+                       groups="nv_dual_bookkeeping.group_view_dual_meta"/>
+                <field name="is_official" column_invisible="1"
+                       groups="nv_dual_bookkeeping.group_view_dual_meta"/>
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- ================================================================
+         account.move.line — List view extension
+         Adds is_official as optional (hidden) column.
+         ================================================================ -->
+    <record id="view_account_move_line_list_dual_bookkeeping" model="ir.ui.view">
+        <field name="name">account.move.line.list.dual.bookkeeping</field>
+        <field name="model">account.move.line</field>
+        <field name="inherit_id" ref="account.view_move_line_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="inside">
+                <field name="move_id" column_invisible="1"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         account.move — Search view extension
+         Adds Official/Non-Official filters and group-by.
+         ================================================================ -->
+    <record id="view_account_move_search_dual_bookkeeping" model="ir.ui.view">
+        <field name="name">account.move.search.dual.bookkeeping</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_account_move_filter"/>
+        <field name="arch" type="xml">
+
+            <!-- Append O/NO filters and group-by at the end of the search view -->
+            <xpath expr="//search" position="inside">
+
+                <!-- O/NO filters gated by group_view_dual_meta — auditors
+                     in the official company do not see these filters. -->
+                <separator groups="nv_dual_bookkeeping.group_view_dual_meta"/>
+
+                <filter string="Official"
+                        name="filter_official"
+                        domain="[('is_official', '=', True)]"
+                        groups="nv_dual_bookkeeping.group_view_dual_meta"/>
+
+                <filter string="Non-Official"
+                        name="filter_non_official"
+                        domain="[('is_official', '=', False)]"
+                        groups="nv_dual_bookkeeping.group_view_dual_meta"/>
+
+                <!-- <filter string="Not Synced"
+                        name="filter_not_synced"
+                        domain="[('is_official', '=', True), ('sync_state', '!=', 'synced')]"/> -->
+
+                <!-- <filter string="Mirror Entries"
+                        name="filter_mirror"
+                        domain="[('is_mirror', '=', True)]"/>
+
+                <group expand="0" string="Group By">
+                    <filter string="Official Status"
+                            name="groupby_official"
+                            context="{'group_by': 'is_official'}"/>
+                </group> -->
+
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

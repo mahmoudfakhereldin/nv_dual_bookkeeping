@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         nv.sync.log — List view (Sync Dashboard)
+         ================================================================ -->
+    <record id="view_nv_sync_log_list" model="ir.ui.view">
+        <field name="name">nv.sync.log.list</field>
+        <field name="model">nv.sync.log</field>
+        <field name="arch" type="xml">
+            <list string="Sync Dashboard"
+                  decoration-success="sync_state == 'synced'"
+                  decoration-danger="sync_state == 'error'"
+                  decoration-warning="sync_state == 'pending'"
+                  create="0">
+
+                <header>
+                    <button name="action_retry_all_failed"
+                            type="object"
+                            string="Retry All Failed"
+                            class="btn btn-warning"
+                            groups="nv_dual_bookkeeping.group_sync_manager"/>
+                </header>
+
+                <field name="sync_date" string="Sync Date" readonly="1"/>
+                <field name="source_move_id" string="Source Transaction"
+                       readonly="1" optional="show"
+                       options="{'no_open': False, 'no_create': True}"/>
+                <field name="source_company_id" string="Source Company"
+                       readonly="1" optional="show"/>
+                <field name="target_move_id" string="Mirror Transaction"
+                       readonly="1" optional="show"
+                       options="{'no_open': False, 'no_create': True}"/>
+                <field name="target_company_id" string="Target Company"
+                       readonly="1" optional="show"/>
+                <field name="triggered_by" string="Triggered By" readonly="1"/>
+                <field name="sync_state" string="State"
+                       widget="badge"
+                       decoration-success="sync_state == 'synced'"
+                       decoration-danger="sync_state == 'error'"
+                       decoration-warning="sync_state == 'pending'"
+                       readonly="1"/>
+                <field name="error_message" string="Error"
+                       optional="show"
+                       invisible="sync_state != 'error'"
+                       readonly="1"/>
+
+                <!-- Per-row retry button for error records -->
+                <button name="action_retry"
+                        type="object"
+                        string="Retry"
+                        icon="fa-refresh"
+                        class="btn btn-sm btn-warning"
+                        invisible="sync_state != 'error'"
+                        groups="nv_dual_bookkeeping.group_sync_manager"/>
+
+            </list>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         nv.sync.log — Form view (detail / error inspection)
+         ================================================================ -->
+    <record id="view_nv_sync_log_form" model="ir.ui.view">
+        <field name="name">nv.sync.log.form</field>
+        <field name="model">nv.sync.log</field>
+        <field name="arch" type="xml">
+            <form string="Sync Log" create="0">
+                <sheet>
+                    <div class="oe_button_box" name="button_box"/>
+                    <group string="Sync Details">
+                        <group>
+                            <field name="sync_state" widget="badge"
+                                   decoration-success="sync_state == 'synced'"
+                                   decoration-danger="sync_state == 'error'"
+                                   decoration-warning="sync_state == 'pending'"
+                                   readonly="1"/>
+                            <field name="sync_date" readonly="1"/>
+                            <field name="triggered_by" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="source_company_id" readonly="1"/>
+                            <field name="target_company_id" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Transactions">
+                        <group>
+                            <field name="source_move_id" readonly="1"
+                                   options="{'no_open': False, 'no_create': True}"/>
+                        </group>
+                        <group>
+                            <field name="target_move_id" readonly="1"
+                                   options="{'no_open': False, 'no_create': True}"/>
+                        </group>
+                    </group>
+                    <group string="Error Details" invisible="sync_state != 'error'">
+                        <field name="error_message" readonly="1" nolabel="1"
+                               widget="text"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_retry"
+                            type="object"
+                            string="Retry Sync"
+                            class="btn btn-warning"
+                            invisible="sync_state != 'error'"
+                            groups="nv_dual_bookkeeping.group_sync_manager"/>
+                    <button string="Close" special="cancel" class="btn btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         nv.sync.log — Search view
+         ================================================================ -->
+    <record id="view_nv_sync_log_search" model="ir.ui.view">
+        <field name="name">nv.sync.log.search</field>
+        <field name="model">nv.sync.log</field>
+        <field name="arch" type="xml">
+            <search string="Sync Logs">
+
+                <field name="source_move_id" string="Source Transaction"/>
+                <field name="source_company_id" string="Source Company"/>
+                <field name="target_company_id" string="Target Company"/>
+
+                <filter string="Errors Only"
+                        name="filter_errors"
+                        domain="[('sync_state', '=', 'error')]"/>
+                <filter string="Pending"
+                        name="filter_pending"
+                        domain="[('sync_state', '=', 'pending')]"/>
+                <filter string="Synced"
+                        name="filter_synced"
+                        domain="[('sync_state', '=', 'synced')]"/>
+                <filter string="Today"
+                        name="filter_today"
+                        domain="[('sync_date', '&gt;=', datetime.datetime.now().strftime('%Y-%m-%d 00:00:00'))]"/>
+
+                <separator/>
+
+                <group expand="0" string="Group By">
+                    <filter string="State" name="groupby_state"
+                            context="{'group_by': 'sync_state'}"/>
+                    <filter string="Source Company" name="groupby_source_company"
+                            context="{'group_by': 'source_company_id'}"/>
+                    <filter string="Triggered By" name="groupby_triggered_by"
+                            context="{'group_by': 'triggered_by'}"/>
+                </group>
+
+            </search>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         nv.sync.log — Action window (Sync Dashboard)
+         ================================================================ -->
+    <record id="action_nv_sync_log_dashboard" model="ir.actions.act_window">
+        <field name="name">Sync Dashboard</field>
+        <field name="res_model">nv.sync.log</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="view_nv_sync_log_list"/>
+        <field name="search_view_id" ref="view_nv_sync_log_search"/>
+        <field name="context">{'search_default_filter_errors': 0}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No sync records yet.
+            </p>
+            <p>
+                Sync records are created automatically when Official transactions
+                are posted. Use the Retry button to re-trigger failed syncs.
+            </p>
+        </field>
+    </record>
+
+</odoo>

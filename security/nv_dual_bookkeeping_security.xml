@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Odoo 19: res.groups.privilege replaces category_id on res.groups.
+        One privilege record groups all Dual Bookkeeping roles under the
+        Accounting module category in the user-management UI.
+    -->
+    <record id="privilege_nv_dual_bookkeeping" model="res.groups.privilege">
+        <field name="name">Dual Bookkeeping</field>
+        <field name="category_id" ref="base.module_category_accounting_accounting"/>
+    </record>
+
+    <!--
+        Group: Can Mark Transactions as Non-Official
+        Inherits account user rights. Members may set is_official=False on moves/payments.
+    -->
+    <record id="group_can_set_non_official" model="res.groups">
+        <field name="name">Can Mark Transactions as Non-Official</field>
+        <field name="privilege_id" ref="privilege_nv_dual_bookkeeping"/>
+        <field name="implied_ids" eval="[(4, ref('account.group_account_user'))]"/>
+        <field name="comment">
+            Users in this group can toggle the Official/Non-Official flag on draft
+            journal entries, invoices, and payments. The flag is locked after posting.
+        </field>
+    </record>
+
+    <!--
+        Group: Can View Dual Bookkeeping Metadata
+        In the Official Books company, only members of this group see the O/NO badge,
+        mirror-entry label, sync status buttons, and source reference. Regular users
+        (e.g. external auditors) see a clean standard accounting view with no internal
+        dual-bookkeeping information.
+        In operating (non-official) companies this group has no effect — the UI is
+        always visible to all accounting users there.
+    -->
+    <record id="group_view_dual_meta" model="res.groups">
+        <field name="name">Can View Dual Bookkeeping Metadata</field>
+        <field name="privilege_id" ref="privilege_nv_dual_bookkeeping"/>
+        <field name="implied_ids" eval="[(4, ref('account.group_account_user'))]"/>
+        <field name="comment">
+            In the Official Books company, members see the Official/Non-Official badge,
+            Mirror Entry label, sync state buttons, source move reference, and the
+            dual-sequence label column. Non-members (e.g. external auditors) see a
+            standard accounting view with none of those internal labels visible.
+        </field>
+    </record>
+
+    <!--
+        Group: Dual Bookkeeping Sync Manager
+        Inherits account manager rights. Members may manually trigger and retry syncs.
+    -->
+    <record id="group_sync_manager" model="res.groups">
+        <field name="name">Dual Bookkeeping Sync Manager</field>
+        <field name="privilege_id" ref="privilege_nv_dual_bookkeeping"/>
+        <field name="implied_ids" eval="[(4, ref('account.group_account_manager'))]"/>
+        <field name="comment">
+            Users in this group can manually trigger synchronisation to the official
+            company, retry failed sync jobs from the Sync Dashboard, and use the
+            Journal Linking Wizard.
+        </field>
+    </record>
+
+</odoo>

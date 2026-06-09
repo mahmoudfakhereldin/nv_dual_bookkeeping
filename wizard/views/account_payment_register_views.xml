@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         account.payment.register — Pay wizard form extension
+         Adds the O/NO toggle so the user can confirm or change the flag
+         inherited from the source invoice / vendor bill before paying.
+         ================================================================ -->
+    <record id="view_account_payment_register_form_dual_bookkeeping" model="ir.ui.view">
+        <field name="name">account.payment.register.form.dual.bookkeeping</field>
+        <field name="model">account.payment.register</field>
+        <field name="inherit_id" ref="account.view_account_payment_register_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Append O/NO row at the end of group2 (amount / date / memo column).
+                 Hidden entirely in the Official Books company. -->
+            <xpath expr="//group[@name='group2']" position="inside">
+
+                <field name="company_is_official_company" invisible="1"/>
+                <field name="is_official_set" invisible="1"/>
+
+                <field name="is_official"
+                       string="Booking Type"
+                       widget="boolean_toggle"
+                       invisible="company_is_official_company"/>
+
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

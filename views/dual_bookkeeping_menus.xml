@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         Actions for filtered account.move lists
+         ================================================================ -->
+
+    <record id="action_move_official" model="ir.actions.act_window">
+        <field name="name">Official Transactions</field>
+        <field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('is_official', '=', True), ('move_type', 'not in', ('in_receipt', 'out_receipt'))]</field>
+        <field name="context">{'default_is_official': True, 'default_is_official_set': True}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No official transactions found.</p>
+        </field>
+    </record>
+
+    <record id="action_move_non_official" model="ir.actions.act_window">
+        <field name="name">Non-Official Transactions</field>
+        <field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('is_official', '=', False), ('move_type', 'not in', ('in_receipt', 'out_receipt'))]</field>
+        <field name="context">{'default_is_official': False, 'default_is_official_set': True}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No non-official transactions found.</p>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         Summary Report — Pivot view
+         ================================================================ -->
+
+    <record id="view_account_move_pivot_dual_bookkeeping" model="ir.ui.view">
+        <field name="name">account.move.pivot.dual.bookkeeping</field>
+        <field name="model">account.move</field>
+        <field name="arch" type="xml">
+            <pivot string="Dual Bookkeeping Summary" disable_linking="0">
+                <field name="journal_id" type="row"/>
+                <field name="is_official" type="col"/>
+                <field name="amount_total" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_dual_bookkeeping_summary" model="ir.actions.act_window">
+        <field name="name">Summary Report</field>
+        <field name="res_model">account.move</field>
+        <field name="view_mode">pivot,list</field>
+        <field name="view_id" ref="view_account_move_pivot_dual_bookkeeping"/>
+        <field name="domain">[('state', '=', 'posted')]</field>
+        <field name="context">{'search_default_groupby_official': 1}</field>
+    </record>
+
+    <!-- Action to open Journal Linking Wizard from menu -->
+    <record id="action_open_journal_link_wizard_menu" model="ir.actions.act_window">
+        <field name="name">Link Official Journals</field>
+        <field name="res_model">nv.journal.link.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ================================================================
+         Menu items
+         ================================================================ -->
+
+    <!-- Top-level "Dual Bookkeeping" group under the Accounting app -->
+    <menuitem id="menu_dual_bookkeeping_root"
+              name="Dual Bookkeeping"
+              parent="account.menu_finance"
+              sequence="100"
+              groups="account.group_account_user"/>
+
+    <menuitem id="menu_dual_bookkeeping_official"
+              name="Official Transactions"
+              parent="menu_dual_bookkeeping_root"
+              action="action_move_official"
+              sequence="10"
+              groups="account.group_account_user"/>
+
+    <menuitem id="menu_dual_bookkeeping_non_official"
+              name="Non-Official Transactions"
+              parent="menu_dual_bookkeeping_root"
+              action="action_move_non_official"
+              sequence="20"
+              groups="account.group_account_user"/>
+
+    <menuitem id="menu_dual_bookkeeping_sync_dashboard"
+              name="Sync Dashboard"
+              parent="menu_dual_bookkeeping_root"
+              action="action_nv_sync_log_dashboard"
+              sequence="30"
+              groups="account.group_account_user"/>
+
+    <menuitem id="menu_dual_bookkeeping_link_journals"
+              name="Link Official Journals"
+              parent="menu_dual_bookkeeping_root"
+              action="action_open_journal_link_wizard_menu"
+              sequence="40"
+              groups="nv_dual_bookkeeping.group_sync_manager"/>
+
+    <menuitem id="menu_dual_bookkeeping_summary"
+              name="Summary Report"
+              parent="menu_dual_bookkeeping_root"
+              action="action_dual_bookkeeping_summary"
+              sequence="50"
+              groups="account.group_account_user"/>
+
+</odoo>

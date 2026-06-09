@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         res.config.settings — Form view extension
+         Adds "Dual Bookkeeping" block inside the Accounting app section.
+         Odoo 18 settings use <app> / <block> / <setting> elements.
+         ================================================================ -->
+    <record id="view_res_config_settings_dual_bookkeeping" model="ir.ui.view">
+        <field name="name">res.config.settings.dual.bookkeeping</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="account.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+
+            <xpath expr="//app[@name='account']" position="inside">
+
+                <block title="Dual Bookkeeping" name="dual_bookkeeping">
+
+                    <setting string="Official Mirror Company"
+                             help="All Official transactions will be automatically mirrored to this company.">
+                        <field name="official_company_id" options="{'no_create': True}"/>
+                    </setting>
+
+                    <setting string="Default new transactions as Official"
+                             help="New journal entries, invoices, and payments will default to Official status.">
+                        <field name="nv_default_is_official"/>
+                    </setting>
+
+                    <setting string="Require explicit Official/Non-Official selection before posting"
+                             help="Users must consciously toggle the O/NO flag before a transaction can be posted.">
+                        <field name="require_official_flag"/>
+                    </setting>
+
+                    <setting string="Auto-post mirrored transactions in official company"
+                             help="When disabled (recommended), mirror entries remain in draft for manual review before posting.">
+                        <field name="auto_post_mirror"/>
+                    </setting>
+
+                    <setting string="Block direct manual posting in Official Company"
+                             help="Only mirror entries created by the sync engine can be posted in the official company. Prevents sequence conflicts.">
+                        <field name="block_direct_posting_in_official"/>
+                    </setting>
+
+                </block>
+
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>
