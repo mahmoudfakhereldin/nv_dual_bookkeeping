@@ -19,6 +19,16 @@ class ResCompany(models.Model):
         ),
     )
 
+    # Inverse of official_company_id — used as the depends trigger so that
+    # when any company points to (or stops pointing to) this company, Odoo
+    # automatically invalidates and recomputes is_official_company here.
+    mirror_source_company_ids = fields.One2many(
+        comodel_name='res.company',
+        inverse_name='official_company_id',
+        string='Mirror Source Companies',
+        readonly=True,
+    )
+
     is_official_company = fields.Boolean(
         string='Is Official Company',
         compute='_compute_is_official_company',
@@ -30,20 +40,64 @@ class ResCompany(models.Model):
         ),
     )
 
-    @api.depends('official_company_id')
+    @api.depends('mirror_source_company_ids')
     def _compute_is_official_company(self):
         """
-        A company is considered an 'Official Company' when any other company
-        in the system has selected it as their official_company_id.
-
-        We search across all companies (sudo) so the computed field stays
-        accurate regardless of the current user's company access.
+        A company is the 'Official Company' when at least one other company
+        has selected it as their official_company_id (mirror_source_company_ids
+        is non-empty).  Depending on the One2many inverse means Odoo correctly
+        invalidates this field on the TARGET company whenever any source
+        company's official_company_id changes.
         """
-        all_companies = self.env['res.company'].sudo().search([
-            ('official_company_id', '!=', False),
-        ])
-        # Build a set of company IDs that are targeted as official mirrors
-        official_ids = set(all_companies.mapped('official_company_id').ids)
-
         for company in self:
-            company.is_official_company = company.id in official_ids
+            company.is_official_company = bool(company.mirror_source_company_ids)
+
+    # -------------------------------------------------------------------------
+    # Invoice Layout — per-company visibility settings
+    # -------------------------------------------------------------------------
+
+    # Official invoices
+    official_show_header_logo = fields.Boolean(
+        string='[Official] Show Header Logo', default=True,
+    )
+    official_show_company_details = fields.Boolean(
+        string='[Official] Show Company Details', default=True,
+    )
+    official_show_company_vat = fields.Boolean(
+        string='[Official] Show Company VAT', default=True,
+    )
+    official_show_customer_vat = fields.Boolean(
+        string='[Official] Show Customer VAT', default=True,
+    )
+    official_show_customer_email = fields.Boolean(
+        string='[Official] Show Customer Email', default=False,
+    )
+    official_show_customer_phone = fields.Boolean(
+        string='[Official] Show Customer Phone', default=False,
+    )
+    official_show_footer = fields.Boolean(
+        string='[Official] Show Footer', default=True,
+    )
+
+    # Non-Official invoices
+    non_official_show_header_logo = fields.Boolean(
+        string='[Non-Official] Show Header Logo', default=True,
+    )
+    non_official_show_company_details = fields.Boolean(
+        string='[Non-Official] Show Company Details', default=True,
+    )
+    non_official_show_company_vat = fields.Boolean(
+        string='[Non-Official] Show Company VAT', default=True,
+    )
+    non_official_show_customer_vat = fields.Boolean(
+        string='[Non-Official] Show Customer VAT', default=True,
+    )
+    non_official_show_customer_email = fields.Boolean(
+        string='[Non-Official] Show Customer Email', default=False,
+    )
+    non_official_show_customer_phone = fields.Boolean(
+        string='[Non-Official] Show Customer Phone', default=False,
+    )
+    non_official_show_footer = fields.Boolean(
+        string='[Non-Official] Show Footer', default=True,
+    )

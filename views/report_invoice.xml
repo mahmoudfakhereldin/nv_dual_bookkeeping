@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         account.report_invoice_document — override
+         Injects NV dual-bookkeeping invoice layout visibility variables
+         and adds customer email / phone to address blocks.
+
+         Variables set here (inside the t-call body) are scoped into the
+         called layout templates, so the 7 external layouts can reference
+         nv_hide_* without risk of NameError (undefined vars evaluate to
+         None/False in Odoo QWeb).
+         ================================================================ -->
+    <template id="report_invoice_document_nv"
+              inherit_id="account.report_invoice_document">
+
+        <!-- 1. Inject customer-level visibility vars.
+                nv_hide_logo / nv_hide_company_details / nv_hide_company_vat /
+                nv_hide_footer are set in web.external_layout (report_layouts.xml)
+                so they reach the layout template header/footer reliably.
+                Customer VAT / email / phone are used inline in this body so
+                they can be set here without any propagation concern. -->
+        <xpath expr="//t[@t-set='forced_vat']" position="after">
+            <t t-set="_nv_is_official"
+               t-value="bool(o) and 'is_official' in o._fields and bool(o.is_official)"/>
+            <t t-set="_nv_co" t-value="o.company_id.sudo()"/>
+            <t t-set="_nv_has_dual" t-value="bool(o) and 'is_official' in o._fields"/>
+            <t t-set="nv_hide_customer_vat"
+               t-value="not (_nv_co.official_show_customer_vat if _nv_is_official else _nv_co.non_official_show_customer_vat) if _nv_has_dual else False"/>
+            <t t-set="nv_hide_customer_email"
+               t-value="not (_nv_co.official_show_customer_email if _nv_is_official else _nv_co.non_official_show_customer_email) if _nv_has_dual else False"/>
+            <t t-set="nv_hide_customer_phone"
+               t-value="not (_nv_co.official_show_customer_phone if _nv_is_official else _nv_co.non_official_show_customer_phone) if _nv_has_dual else False"/>
+        </xpath>
+
+        <!-- 2a. Customer VAT — "different shipping" address block -->
+        <xpath expr="//div[@id='partner_vat_address_not_same_as_shipping']"
+               position="attributes">
+            <attribute name="t-if">o.partner_id.vat and not nv_hide_customer_vat</attribute>
+        </xpath>
+        <xpath expr="//div[@id='partner_vat_address_not_same_as_shipping']"
+               position="after">
+            <div t-if="o.partner_id.email and not nv_hide_customer_email">
+                <span t-field="o.partner_id.email"/>
+            </div>
+            <div t-if="o.partner_id.phone and not nv_hide_customer_phone">
+                <span t-field="o.partner_id.phone"/>
+            </div>
+        </xpath>
+
+        <!-- 2b. Customer VAT — "same shipping" address block -->
+        <xpath expr="//div[@id='partner_vat_address_same_as_shipping']"
+               position="attributes">
+            <attribute name="t-if">o.partner_id.vat and not nv_hide_customer_vat</attribute>
+        </xpath>
+        <xpath expr="//div[@id='partner_vat_address_same_as_shipping']"
+               position="after">
+            <div t-if="o.partner_id.email and not nv_hide_customer_email">
+                <span t-field="o.partner_id.email"/>
+            </div>
+            <div t-if="o.partner_id.phone and not nv_hide_customer_phone">
+                <span t-field="o.partner_id.phone"/>
+            </div>
+        </xpath>
+
+        <!-- 2c. Customer VAT — "no shipping" address block -->
+        <xpath expr="//div[@id='partner_vat_no_shipping']"
+               position="attributes">
+            <attribute name="t-if">o.partner_id.vat and not nv_hide_customer_vat</attribute>
+        </xpath>
+        <xpath expr="//div[@id='partner_vat_no_shipping']"
+               position="after">
+            <div t-if="o.partner_id.email and not nv_hide_customer_email">
+                <span t-field="o.partner_id.email"/>
+            </div>
+            <div t-if="o.partner_id.phone and not nv_hide_customer_phone">
+                <span t-field="o.partner_id.phone"/>
+            </div>
+        </xpath>
+
+    </template>
+
+</odoo>

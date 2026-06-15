@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         res.partner — add is_official to the Accounting tab
+         ================================================================ -->
+    <record id="view_partner_form_dual_bookkeeping" model="ir.ui.view">
+        <field name="name">res.partner.form.dual.bookkeeping</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="account.view_partner_property_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Insert a "Dual Bookkeeping" group at the top of the
+                 Accounting tab so the setting is easy to find. -->
+            <xpath expr="//page[@name='accounting']" position="inside">
+                <field name="env_company_is_official" invisible="1"/>
+                <group string="Dual Bookkeeping" name="dual_bookkeeping_partner"
+                       invisible="env_company_is_official">
+                    <field name="is_official"
+                           widget="boolean_toggle"
+                           string="Official"
+                           help="When enabled, invoices, bills, credit notes, and payments for this contact will default to the Official (O) bookkeeping stream. Disable for contacts whose transactions are always Non-Official (NO)."/>
+                </group>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

@@ -67,7 +67,7 @@
     <!-- Top-level "Dual Bookkeeping" group under the Accounting app -->
     <menuitem id="menu_dual_bookkeeping_root"
               name="Dual Bookkeeping"
-              parent="account.menu_finance"
+              parent="accountant.menu_accounting"
               sequence="100"
               groups="account.group_account_user"/>
 

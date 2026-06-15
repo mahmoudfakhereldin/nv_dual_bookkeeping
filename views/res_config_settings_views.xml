@@ -43,6 +43,76 @@
 
                 </block>
 
+                <block title="Invoice Layout" name="dual_bookkeeping_invoice_layout">
+
+                    <setting string="Official Invoices" help="Control which sections appear on Official invoices.">
+                        <div class="content-group">
+                            <div class="row mt16">
+                                <div class="col-lg-4 o_light_label">Header Logo</div>
+                                <field name="official_show_header_logo" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Company Details</div>
+                                <field name="official_show_company_details" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Company VAT</div>
+                                <field name="official_show_company_vat" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Customer VAT</div>
+                                <field name="official_show_customer_vat" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Customer Email</div>
+                                <field name="official_show_customer_email" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Customer Phone</div>
+                                <field name="official_show_customer_phone" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Footer</div>
+                                <field name="official_show_footer" widget="boolean_toggle"/>
+                            </div>
+                        </div>
+                    </setting>
+
+                    <setting string="Non-Official Invoices" help="Control which sections appear on Non-Official invoices.">
+                        <div class="content-group">
+                            <div class="row mt16">
+                                <div class="col-lg-4 o_light_label">Header Logo</div>
+                                <field name="non_official_show_header_logo" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Company Details</div>
+                                <field name="non_official_show_company_details" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Company VAT</div>
+                                <field name="non_official_show_company_vat" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Customer VAT</div>
+                                <field name="non_official_show_customer_vat" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Customer Email</div>
+                                <field name="non_official_show_customer_email" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Customer Phone</div>
+                                <field name="non_official_show_customer_phone" widget="boolean_toggle"/>
+                            </div>
+                            <div class="row mt8">
+                                <div class="col-lg-4 o_light_label">Footer</div>
+                                <field name="non_official_show_footer" widget="boolean_toggle"/>
+                            </div>
+                        </div>
+                    </setting>
+
+                </block>
+
             </xpath>
 
         </field>

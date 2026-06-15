@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
@@ -182,43 +182,143 @@ class NvSyncEngine(models.AbstractModel):
 
     def _create_mirror_entry(self, source_move, official_co, official_journal):
         """
-        Create a mirror account.move (journal entry or invoice) in the official
-        company.  Auto-posts if the auto_post_mirror setting is enabled.
+        Create a mirror account.move in the official company.
+
+        Strategy differs by move_type because Odoo 19's invoice machinery
+        hard-sets balance=0 on invoice lines via _compute_balance (precompute=True).
+        Any attempt to write raw debit/credit on invoice-type lines is overridden
+        by that precompute, causing "The entry is not balanced."
+
+        INVOICE / BILL / CREDIT NOTE / REFUND (move_type != 'entry'):
+          create() with invoice_line_ids containing price+quantity+remapped taxes.
+          Odoo computes tax lines and the receivable/payable line from scratch —
+          identical to what happens when a user creates a draft invoice. Amounts
+          match the source as long as tax rates are the same in both companies
+          (which they must be for legal mirroring).
+
+        PLAIN JOURNAL ENTRY (move_type == 'entry'):
+          copy() header (line_ids=[]) + write all lines with explicit balance
+          + skip_invoice_sync=True. _compute_balance does NOT reset balance to 0
+          for non-invoice moves, so the raw values persist and the entry is balanced.
         """
         mirror_partner = self._map_partner(source_move.partner_id, official_co)
-        mirror_ref = (
-            ((source_move.ref or '') + ' ' if source_move.ref else '') +
-            '[MIRROR: %s]' % source_move.name
-        ).strip()
-        mirror_line_vals = self._build_mirror_line_vals(source_move, official_co)
 
-        move_vals = {
-            'journal_id': official_journal.id,
-            # Always use 'entry' so Odoo never runs invoice-line computation
-            # (_compute_account_id etc.) that would reset account_id to False
-            # when product_id is absent.  Mirrors are bookkeeping records only.
-            'move_type': 'entry',
-            'date': source_move.date,
-            'ref': mirror_ref,
-            'narration': source_move.narration,
-            'is_mirror': True,
-            'is_official': True,
-            'is_official_set': True,
-            'source_move_ref': source_move.name,
-            'partner_id': mirror_partner.id if mirror_partner else False,
-            'currency_id': source_move.currency_id.id,
-            'line_ids': mirror_line_vals,
-        }
+        if source_move.move_type != 'entry':
+            # ── Invoice / bill / credit note / refund ────────────────────────
+            invoice_line_vals = []
+            for line in source_move.invoice_line_ids:
+                if line.display_type in ('line_section', 'line_note'):
+                    invoice_line_vals.append((0, 0, {
+                        'display_type': line.display_type,
+                        'name': line.name or '',
+                        'sequence': line.sequence,
+                    }))
+                    continue
+                mirror_account = self._get_mirror_account(line.account_id, official_co)
+                mirror_taxes = self._get_mirror_taxes(line.tax_ids, official_co)
+                mp = self._map_partner(line.partner_id, official_co) if line.partner_id else None
+                invoice_line_vals.append((0, 0, {
+                    'account_id': mirror_account.id,
+                    'name': line.name or '',
+                    'quantity': line.quantity,
+                    'price_unit': line.price_unit,
+                    'discount': line.discount,
+                    'tax_ids': [(6, 0, mirror_taxes.ids)],
+                    'partner_id': mp.id if mp else False,
+                    'display_type': line.display_type,
+                    'sequence': line.sequence,
+                }))
 
-        mirror_move = (
-            self.env['account.move']
-            .sudo()
-            .with_company(official_co)
-            .create(move_vals)
-        )
+            mirror_move = (
+                self.env['account.move']
+                .sudo()
+                .with_company(official_co)
+                .create({
+                    'move_type': source_move.move_type,
+                    'journal_id': official_journal.id,
+                    'company_id': official_co.id,
+                    'invoice_date': source_move.invoice_date or source_move.date,
+                    'invoice_date_due': source_move.invoice_date_due,
+                    'date': source_move.date,
+                    'partner_id': mirror_partner.id if mirror_partner else False,
+                    'currency_id': source_move.currency_id.id,
+                    'fiscal_position_id': False,  # avoid tax remapping by fiscal position
+                    'ref': source_move.ref or False,
+                    'narration': source_move.narration or False,
+                    'payment_reference': source_move.payment_reference,
+                    'is_mirror': True,
+                    'is_official': True,
+                    'is_official_set': True,
+                    'source_move_ref': source_move.name,
+                    # ── nv_double_currencies move fields ─────────────────────
+                    # rate_main_second: drives second_currency_amount on all
+                    # invoice lines via _sync_invoice; must match source so the
+                    # totals are identical and the second_currency_total==0 check
+                    # in nv_double_currencies._post() passes.
+                    'rate_main_second': source_move.rate_main_second,
+                    'set_manual_vat_rate': source_move.set_manual_vat_rate,
+                    'manual_rate_vat': source_move.manual_rate_vat,
+                    'invoice_line_ids': invoice_line_vals,
+                })
+            )
+        else:
+            # ── Plain journal entry ──────────────────────────────────────────
+            # copy() header with no lines, then add all lines with explicit
+            # balance. For non-invoice moves _compute_balance does NOT reset to 0,
+            # so our raw values are stored and the entry stays balanced.
+            defaults = {
+                'journal_id': official_journal.id,
+                'company_id': official_co.id,
+                'is_mirror': True,
+                'is_official': True,
+                'is_official_set': True,
+                'source_move_ref': source_move.name,
+                'partner_id': mirror_partner.id if mirror_partner else False,
+                'ref': source_move.ref or False,
+                'narration': source_move.narration or False,
+                # ── nv_double_currencies move fields ─────────────────────────
+                'rate_main_second': source_move.rate_main_second,
+                'set_manual_vat_rate': source_move.set_manual_vat_rate,
+                'manual_rate_vat': source_move.manual_rate_vat,
+                'line_ids': [],
+            }
+            mirror_move = (
+                source_move
+                .sudo()
+                .with_company(official_co)
+                .with_context(skip_invoice_sync=True)
+                .copy(defaults)
+            )
+            line_vals = []
+            for line in source_move.line_ids:
+                mirror_account = self._get_mirror_account(line.account_id, official_co)
+                mp = self._map_partner(line.partner_id, official_co) if line.partner_id else None
+                line_vals.append((0, 0, {
+                    'account_id': mirror_account.id,
+                    'name': line.name or '',
+                    'balance': line.balance,
+                    'amount_currency': line.amount_currency,
+                    'currency_id': line.currency_id.id,
+                    'partner_id': mp.id if mp else False,
+                    'display_type': line.display_type,
+                    # ── nv_double_currencies line fields ─────────────────────
+                    # second_currency_amount / rate_main_second_line: copied
+                    # directly from source so second_currency_total sums to 0
+                    # (passing nv_double_currencies._post() balance check) and
+                    # amount_currency == second_currency_amount for second-
+                    # currency lines (passing the discrepancy check).
+                    'second_currency_amount': line.second_currency_amount,
+                    'rate_main_second_line': line.rate_main_second_line,
+                    'receivable_payable_line': line.receivable_payable_line,
+                }))
+            if line_vals:
+                mirror_move.with_context(
+                    skip_invoice_sync=True, check_move_validity=False
+                ).write({'line_ids': line_vals})
+
         _logger.info(
-            "nv_dual_bookkeeping: Mirror entry %s created in '%s' for source %s.",
-            mirror_move.name, official_co.name, source_move.name,
+            "nv_dual_bookkeeping: Mirror %s created in '%s' for source %s.",
+            source_move.move_type, official_co.name, source_move.name,
         )
 
         auto_post = self.env['ir.config_parameter'].sudo().get_param(
@@ -237,16 +337,14 @@ class NvSyncEngine(models.AbstractModel):
 
     def _create_mirror_payment(self, source_move, official_co, official_journal):
         """
-        Create a mirror account.payment in the official company using copy().
+        Create a mirror account.payment in the official company using create().
 
-        copy() is used instead of create() because:
-        - move_id is copy=False on account.payment, so Odoo creates a fresh
-          underlying journal entry (no cross-company account leakage from the
-          source move's lines).
-        - Fields that must match the source (amount, currency_id, date,
-          payment_type, partner_type) are inherited automatically.
-        - We only need to supply the fields that differ (company, journal,
-          partner mapping, memo, mirror flags).
+        create() is used instead of copy() to avoid cross-company account leakage:
+        copy() carries over stored computed account fields (destination_account_id,
+        outstanding_account_id, etc.) from the source payment before Odoo's computes
+        can rerun for the new company, triggering Odoo's check_company constraint.
+        With create() all account fields are computed fresh in the official company
+        context from the journal and partner — no cross-company contamination.
 
         is_mirror and source_move_ref are set on the payment itself; our
         account.payment.action_post() override forwards them to move_id in a
@@ -256,42 +354,87 @@ class NvSyncEngine(models.AbstractModel):
         source_payment = source_move.origin_payment_id
         mirror_partner = self._map_partner(source_payment.partner_id, official_co)
 
-        # payment_method_line_id is copy=False so we must supply it explicitly.
+        # payment_method_line_id must be supplied explicitly — Odoo does not
+        # auto-select it on create() when journal_id is set programmatically.
         official_journal_sudo = official_journal.sudo().with_company(official_co)
         if source_payment.payment_type == 'inbound':
             method_line = official_journal_sudo.inbound_payment_method_line_ids[:1]
         else:
             method_line = official_journal_sudo.outbound_payment_method_line_ids[:1]
 
-        mirror_memo = ('[MIRROR: %s] ' % source_move.name) + (source_payment.memo or '')
-        defaults = {
-            'company_id': official_co.id,
-            'journal_id': official_journal.id,
+        create_vals = {
+            'payment_type': source_payment.payment_type,
+            'partner_type': source_payment.partner_type,
             'partner_id': mirror_partner.id if mirror_partner else False,
-            'memo': mirror_memo.strip(),
+            'amount': source_payment.amount,
+            'currency_id': source_payment.currency_id.id,
+            'date': source_payment.date,
+            'journal_id': official_journal.id,
+            'company_id': official_co.id,
+            'memo': source_payment.memo or False,
             'is_official': True,
             'is_official_set': True,
             'is_mirror': True,
             'source_move_ref': source_move.name,
+            # ── nv_double_currencies fields ───────────────────────────────────
+            # rate_main_second / source_currency_id: control currency conversion
+            # and which _prepare_move_line_default_vals branch runs (direct vs
+            # standard). Must match the source so amounts are identical.
+            'rate_main_second': source_payment.rate_main_second,
+            'source_currency_id': source_payment.source_currency_id.id if source_payment.source_currency_id else False,
+            # partner_amount / partner_currency_id: used by
+            # _prepare_move_line_default_vals_direct() to build the counterpart
+            # line amount.  Without these, the line balance would be 0.
+            'partner_amount': source_payment.partner_amount,
+            'partner_currency_id': source_payment.partner_currency_id.id if source_payment.partner_currency_id else False,
+            # rate_main_transaction: fallback rate for non-standard currencies
+            'rate_main_transaction': source_payment.rate_main_transaction,
+            # is_vat_payment / invoice_rate: affect rate selection in get_vat_rate()
+            'is_vat_payment': source_payment.is_vat_payment,
+            'invoice_rate': source_payment.invoice_rate,
+            # bank_fees_amount intentionally NOT synced: bank charges are
+            # incurred at the source company's bank — not in the official books.
         }
         if method_line:
-            defaults['payment_method_line_id'] = method_line.id
+            create_vals['payment_method_line_id'] = method_line.id
 
-        # destination_account_id is a stored computed field with check_company=True.
-        # copy() carries over the source payment's value (main-company account)
-        # before Odoo's compute reruns, triggering the cross-company check.
-        # Explicitly resolve it in the official company by matching on account code.
+        # destination_account_id: always resolve explicitly from the source so
+        # that manual payments (no partner) get a valid account. Odoo can only
+        # auto-compute this from partner.property_account_receivable/payable_id,
+        # which is null when there is no partner — leaving account_id=null on the
+        # counterpart line and triggering the check_accountable_required_fields
+        # constraint. With create() (unlike copy()) the account belongs to the
+        # official company, so no cross-company constraint is raised.
+        #
+        # Also set receivable_payable_account_id (nv_double_currencies field):
+        # when enable_second_currency_for_company=True and source_currency_id is
+        # empty, _prepare_move_line_default_vals_direct() uses
+        # receivable_payable_account_id (not destination_account_id) for the
+        # counterpart line. Both must be set regardless of which path runs.
         if source_payment.destination_account_id:
             official_dest = self._get_mirror_account(
                 source_payment.destination_account_id, official_co
             )
-            defaults['destination_account_id'] = official_dest.id
+            create_vals['destination_account_id'] = official_dest.id
+            create_vals['receivable_payable_account_id'] = official_dest.id
+
+        # difference_account_id (nv_double_currencies): exchange diff account.
+        # Map it if set on the source; if not, the code falls back to the
+        # company's loss/gain exchange difference accounts automatically.
+        if source_payment.difference_account_id:
+            try:
+                official_diff = self._get_mirror_account(
+                    source_payment.difference_account_id, official_co
+                )
+                create_vals['difference_account_id'] = official_diff.id
+            except Exception:
+                pass  # fallback to company defaults is safe
 
         mirror_payment = (
-            source_payment
+            self.env['account.payment']
             .sudo()
             .with_company(official_co)
-            .copy(defaults)
+            .create(create_vals)
         )
 
         mirror_payment.sudo().with_company(official_co).action_post()
@@ -482,44 +625,32 @@ class NvSyncEngine(models.AbstractModel):
         return (preferred or candidates)[:1]
 
     # =========================================================================
-    # Line mirroring
+    # Account and tax mapping
     # =========================================================================
 
-    def _build_mirror_line_vals(self, source_move, target_company):
+    def _get_mirror_taxes(self, taxes, target_company):
         """
-        Build the line_ids command list for a mirror account.move.
-
-        For invoice-type moves: use invoice_line_ids style so Odoo recomputes
-        the receivable/payable line correctly in the target company.
-        For plain journal entries: copy raw debit/credit amounts directly.
+        Find equivalent taxes in target_company matched by name.
+        Returns an empty recordset (no tax) for any tax that cannot be found,
+        logging a warning so the accountant can investigate.
         """
-        line_vals = []
-
-        # Always build raw debit/credit journal-entry lines regardless of the
-        # source move_type.  Mirror moves are always created as move_type='entry'
-        # so that Odoo never runs invoice-line computes (_compute_account_id,
-        # _compute_tax_ids …) that reset account_id to False when product_id is
-        # absent.  We iterate all source lines (not just invoice_line_ids) so the
-        # full entry — product lines, tax lines, receivable/payable line — is
-        # copied faithfully.
-        for line in source_move.line_ids:
-            mirror_account = self._get_mirror_account(line.account_id, target_company)
-            line_vals.append((0, 0, {
-                'account_id': mirror_account.id,
-                'name': line.name,
-                'debit': line.debit,
-                'credit': line.credit,
-                'partner_id': self._map_partner(line.partner_id, target_company).id
-                if line.partner_id else False,
-                'currency_id': line.currency_id.id,
-                'amount_currency': line.amount_currency,
-            }))
-
-        return line_vals
-
-    # =========================================================================
-    # Account mapping
-    # =========================================================================
+        if not taxes:
+            return self.env['account.tax']
+        mirror_taxes = self.env['account.tax'].sudo()
+        for tax in taxes:
+            match = self.env['account.tax'].sudo().search([
+                ('name', '=', tax.name),
+                ('company_id', '=', target_company.id),
+            ], limit=1)
+            if match:
+                mirror_taxes |= match
+            else:
+                _logger.warning(
+                    "nv_dual_bookkeeping: Tax '%s' not found in company '%s'. "
+                    "Mirror line will have no tax applied.",
+                    tax.name, target_company.name,
+                )
+        return mirror_taxes
 
     def _get_mirror_account(self, account, target_company):
         """

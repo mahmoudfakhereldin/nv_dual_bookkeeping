@@ -81,8 +81,7 @@
                     <field name="is_official"
                            widget="boolean_toggle"
                            nolabel="1"
-                           invisible="state in ('posted', 'cancel')"
-                           readonly="state in ('posted', 'cancel')"/>
+                           readonly="state != 'draft'"/>
 
                     <!-- Track explicit set (hidden) -->
                     <field name="is_official_set" invisible="1"/>

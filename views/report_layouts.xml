@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        NV Dual Bookkeeping — External Layout overrides
+        ================================================
+        Patches all 7 standard Odoo 19 external layouts to respect the
+        nv_hide_* variables injected by the web.external_layout override
+        below.
+
+        Variables are set in web.external_layout itself (not in a t-call
+        body) so they are guaranteed to be in scope when each layout's
+        header and footer sections render.
+
+        Variables default to False when not set (non-invoice reports),
+        so all sections remain visible for unaffected reports — zero impact
+        outside of nv_dual_bookkeeping invoice printing.
+
+        Controlled sections per layout:
+          • Logo              — nv_hide_logo
+          • Company details   — nv_hide_company_details
+          • Company VAT line  — nv_hide_company_vat
+          • Footer            — nv_hide_footer
+    -->
+
+    <!-- ================================================================
+         Inject visibility variables into web.external_layout before it
+         dispatches to the specific layout template.  By setting them here
+         (in the template's own sequential scope) we guarantee:
+           1. _nv_is_official is available when nv_hide_* are evaluated.
+           2. All dispatched layouts (standard/boxed/bold/…) see the vars.
+           3. For non-invoice reports o._fields lacks 'is_official' →
+              _nv_has_dual = False → all nv_hide_* = False → shows all.
+         ================================================================ -->
+    <template id="nv_external_layout" inherit_id="web.external_layout">
+        <xpath expr="//t[@t-if='company.external_report_layout_id']" position="before">
+            <t t-set="_nv_is_official"
+               t-value="bool(o) and 'is_official' in o._fields and bool(o.is_official)"/>
+            <t t-set="_nv_has_dual"
+               t-value="bool(o) and 'is_official' in o._fields"/>
+            <t t-set="nv_hide_logo"
+               t-value="not (company.official_show_header_logo if _nv_is_official else company.non_official_show_header_logo) if _nv_has_dual else False"/>
+            <t t-set="nv_hide_company_details"
+               t-value="not (company.official_show_company_details if _nv_is_official else company.non_official_show_company_details) if _nv_has_dual else False"/>
+            <t t-set="nv_hide_company_vat"
+               t-value="not (company.official_show_company_vat if _nv_is_official else company.non_official_show_company_vat) if _nv_has_dual else False"/>
+            <t t-set="nv_hide_footer"
+               t-value="not (company.official_show_footer if _nv_is_official else company.non_official_show_footer) if _nv_has_dual else False"/>
+        </xpath>
+    </template>
+
+    <!-- ================================================================
+         1. Striped
+         ================================================================ -->
+    <template id="nv_external_layout_striped" inherit_id="web.external_layout_striped">
+        <xpath expr="//img[contains(@class,'o_company_logo')]" position="attributes">
+            <attribute name="t-if">company.logo and not nv_hide_logo</attribute>
+        </xpath>
+        <xpath expr="//div[@name='company_address']" position="attributes">
+            <attribute name="t-if">not nv_hide_company_details</attribute>
+        </xpath>
+        <xpath expr="//li[.//span[@t-esc='forced_vat']]" position="replace">
+            <li t-if="forced_vat and not nv_hide_company_vat">
+                <t t-esc="company.country_id.vat_label or 'Tax ID'">Tax ID</t>:
+                <span t-esc="forced_vat">US12345671</span>
+            </li>
+        </xpath>
+        <xpath expr="//div[contains(@t-attf-class,'footer')]" position="attributes">
+            <attribute name="t-if">not nv_hide_footer</attribute>
+        </xpath>
+    </template>
+
+    <!-- ================================================================
+         2. Boxed
+         ================================================================ -->
+    <template id="nv_external_layout_boxed" inherit_id="web.external_layout_boxed">
+        <xpath expr="//img[contains(@class,'o_company_logo')]" position="attributes">
+            <attribute name="t-if">company.logo and not nv_hide_logo</attribute>
+        </xpath>
+        <xpath expr="//div[@name='company_address']" position="attributes">
+            <attribute name="t-if">not nv_hide_company_details</attribute>
+        </xpath>
+        <xpath expr="//li[.//span[@t-esc='forced_vat']]" position="replace">
+            <li t-if="forced_vat and not nv_hide_company_vat">
+                <t t-esc="company.country_id.vat_label or 'Tax ID'">Tax ID</t>:
+                <span t-esc="forced_vat">US12345671</span>
+            </li>
+        </xpath>
+        <xpath expr="//div[contains(@t-attf-class,'footer')]" position="attributes">
+            <attribute name="t-if">not nv_hide_footer</attribute>
+        </xpath>
+    </template>
+
+    <!-- ================================================================
+         3. Bold
+         ================================================================ -->
+    <template id="nv_external_layout_bold" inherit_id="web.external_layout_bold">
+        <xpath expr="//img[contains(@class,'o_company_logo')]" position="attributes">
+            <attribute name="t-if">company.logo and not nv_hide_logo</attribute>
+        </xpath>
+        <xpath expr="//div[@name='company_address']" position="attributes">
+            <attribute name="t-if">not nv_hide_company_details</attribute>
+        </xpath>
+        <xpath expr="//li[.//span[@t-esc='forced_vat']]" position="replace">
+            <li t-if="forced_vat and not nv_hide_company_vat">
+                <t t-esc="company.country_id.vat_label or 'Tax ID'">Tax ID</t>:
+                <span t-esc="forced_vat">US12345671</span>
+            </li>
+        </xpath>
+        <xpath expr="//div[contains(@t-attf-class,'footer')]" position="attributes">
+            <attribute name="t-if">not nv_hide_footer</attribute>
+        </xpath>
+    </template>
+
+    <!-- ================================================================
+         4. Standard
+         ================================================================ -->
+    <template id="nv_external_layout_standard" inherit_id="web.external_layout_standard">
+        <xpath expr="//img[contains(@class,'o_company_logo')]" position="attributes">
+            <attribute name="t-if">company.logo and not nv_hide_logo</attribute>
+        </xpath>
+        <xpath expr="//div[@name='company_address']" position="attributes">
+            <attribute name="t-if">not nv_hide_company_details</attribute>
+        </xpath>
+        <xpath expr="//li[.//span[@t-esc='forced_vat']]" position="replace">
+            <li t-if="forced_vat and not nv_hide_company_vat">
+                <t t-esc="company.country_id.vat_label or 'Tax ID'">Tax ID</t>:
+                <span t-esc="forced_vat">US12345671</span>
+            </li>
+        </xpath>
+        <xpath expr="//div[contains(@t-attf-class,'footer')]" position="attributes">
+            <attribute name="t-if">not nv_hide_footer</attribute>
+        </xpath>
+    </template>
+
+    <!-- ================================================================
+         5. Folder
+         ================================================================ -->
+    <template id="nv_external_layout_folder" inherit_id="web.external_layout_folder">
+        <xpath expr="//img[contains(@class,'o_company_logo')]" position="attributes">
+            <attribute name="t-if">company.logo and not nv_hide_logo</attribute>
+        </xpath>
+        <xpath expr="//div[@name='company_address']" position="attributes">
+            <attribute name="t-if">not nv_hide_company_details</attribute>
+        </xpath>
+        <xpath expr="//li[.//span[@t-esc='forced_vat']]" position="replace">
+            <li t-if="forced_vat and not nv_hide_company_vat">
+                <t t-esc="company.country_id.vat_label or 'Tax ID'">Tax ID</t>:
+                <span t-esc="forced_vat">US12345671</span>
+            </li>
+        </xpath>
+        <xpath expr="//div[contains(@t-attf-class,'footer')]" position="attributes">
+            <attribute name="t-if">not nv_hide_footer</attribute>
+        </xpath>
+    </template>
+
+    <!-- ================================================================
+         6. Wave
+         ================================================================ -->
+    <template id="nv_external_layout_wave" inherit_id="web.external_layout_wave">
+        <xpath expr="//img[contains(@class,'o_company_logo')]" position="attributes">
+            <attribute name="t-if">company.logo and not nv_hide_logo</attribute>
+        </xpath>
+        <xpath expr="//div[@name='company_address']" position="attributes">
+            <attribute name="t-if">not nv_hide_company_details</attribute>
+        </xpath>
+        <xpath expr="//li[.//span[@t-esc='forced_vat']]" position="replace">
+            <li t-if="forced_vat and not nv_hide_company_vat">
+                <t t-esc="company.country_id.vat_label or 'Tax ID'">Tax ID</t>:
+                <span t-esc="forced_vat">US12345671</span>
+            </li>
+        </xpath>
+        <xpath expr="//div[contains(@t-attf-class,'footer')]" position="attributes">
+            <attribute name="t-if">not nv_hide_footer</attribute>
+        </xpath>
+    </template>
+
+    <!-- ================================================================
+         7. Bubble
+         ================================================================ -->
+    <template id="nv_external_layout_bubble" inherit_id="web.external_layout_bubble">
+        <xpath expr="//img[contains(@class,'o_company_logo')]" position="attributes">
+            <attribute name="t-if">company.logo and not nv_hide_logo</attribute>
+        </xpath>
+        <xpath expr="//div[@name='company_address']" position="attributes">
+            <attribute name="t-if">not nv_hide_company_details</attribute>
+        </xpath>
+        <xpath expr="//li[.//span[@t-esc='forced_vat']]" position="replace">
+            <li t-if="forced_vat and not nv_hide_company_vat">
+                <t t-esc="company.country_id.vat_label or 'Tax ID'">Tax ID</t>:
+                <span t-esc="forced_vat">US12345671</span>
+            </li>
+        </xpath>
+        <xpath expr="//div[contains(@t-attf-class,'footer')]" position="attributes">
+            <attribute name="t-if">not nv_hide_footer</attribute>
+        </xpath>
+    </template>
+
+</odoo>

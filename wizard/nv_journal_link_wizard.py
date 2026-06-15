@@ -213,7 +213,6 @@ class NvJournalLinkWizardLine(models.TransientModel):
         comodel_name='account.journal',
         string='Main Journal',
         required=True,
-        readonly=True,
     )
 
     journal_code = fields.Char(

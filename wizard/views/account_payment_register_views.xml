@@ -20,7 +20,7 @@
                 <field name="is_official_set" invisible="1"/>
 
                 <field name="is_official"
-                       string="Booking Type"
+                       string="Is Official"
                        widget="boolean_toggle"
                        invisible="company_is_official_company"/>
 

@@ -139,7 +139,7 @@
 
                 <separator/>
 
-                <group expand="0" string="Group By">
+                <group>
                     <filter string="State" name="groupby_state"
                             context="{'group_by': 'sync_state'}"/>
                     <filter string="Source Company" name="groupby_source_company"

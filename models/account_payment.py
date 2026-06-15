@@ -10,11 +10,12 @@ class AccountPayment(models.Model):
 
     is_official = fields.Boolean(
         string='Official',
-        default=True,
+        default=lambda self: self._default_is_official(),
         tracking=True,
-        copy=False,
+        copy=True,
         help="When True the resulting journal entry will use the Official (O) sequence. "
-             "When False it will use the Non-Official (NO) sequence. Locked after posting.",
+             "When False it will use the Non-Official (NO) sequence. Locked after posting. "
+             "Copied on duplicate so the stream is always preserved.",
     )
 
     is_official_set = fields.Boolean(
@@ -68,6 +69,40 @@ class AccountPayment(models.Model):
     )
 
     # -------------------------------------------------------------------------
+    # Defaults / onchange
+    # -------------------------------------------------------------------------
+
+    @api.model
+    def _default_is_official(self):
+        """
+        Priority order (mirrors account.move._default_is_official):
+        1. Official Books company → always True.
+        2. Partner flag from context.
+        3. Global config parameter fallback.
+        """
+        if self.env.company.is_official_company:
+            return True
+        partner_id = self.env.context.get('default_partner_id')
+        if partner_id:
+            partner = self.env['res.partner'].browse(partner_id)
+            return partner.is_official
+        param = self.env['ir.config_parameter'].sudo().get_param(
+            'nv_dual_bookkeeping.default_is_official', 'False'
+        )
+        return param.strip().lower() not in ('false', '0', '')
+
+    @api.onchange('partner_id')
+    def _onchange_partner_id_dual_bookkeeping(self):
+        """Sync is_official from the partner whenever partner changes on a
+        draft payment in a non-official-books company."""
+        if (
+            self.partner_id
+            and self.state == 'draft'
+            and not self.company_id.is_official_company
+        ):
+            self.is_official = self.partner_id.is_official
+
+    # -------------------------------------------------------------------------
     # Write override — mirror account.move locking logic
     # -------------------------------------------------------------------------
 
@@ -106,14 +141,21 @@ class AccountPayment(models.Model):
 
     def _generate_journal_entry(self, write_off_line_vals=None, force_balance=None, line_ids=None):
         """
-        In Odoo 18, draft payments have no move_id yet.  The underlying journal
-        entry is created here (called from write() when state → in_process/paid,
-        and occasionally from create()).  Immediately after super() creates the
-        move we propagate our dual-bookkeeping flags so that:
+        In Odoo 19, the underlying journal entry is created here and immediately
+        set to 'in_process' state (not 'draft') by the native code.  We propagate
+        our dual-bookkeeping flags immediately after super() so that:
         - _set_next_sequence() picks the right stream (O vs NO) or reuses the
           source name for mirror payments.
         - The sync guard in account.move.action_post() sees is_official=False
           for non-official payments and does not trigger a mirror sync.
+
+        State guard: 'not in posted/cancel' (not == draft) because Odoo 19 sets
+        the move to 'in_process' right after creation.
+
+        sudo(): the group check in account.move.write() is intended for UI-initiated
+        changes by the user.  Here we are propagating a value the user already
+        validated (e.g. by selecting Non-Official in the payment wizard), so no
+        additional group check is needed.
         """
         super()._generate_journal_entry(
             write_off_line_vals=write_off_line_vals,
@@ -121,7 +163,7 @@ class AccountPayment(models.Model):
             line_ids=line_ids,
         )
         for pay in self:
-            if pay.move_id and pay.move_id.state == 'draft':
+            if pay.move_id and pay.move_id.state not in ('posted', 'cancel'):
                 move_vals = {
                     'is_official': pay.is_official,
                     'is_official_set': pay.is_official_set,
@@ -130,20 +172,21 @@ class AccountPayment(models.Model):
                     move_vals['is_mirror'] = True
                 if pay.source_move_ref:
                     move_vals['source_move_ref'] = pay.source_move_ref
-                pay.move_id.write(move_vals)
+                pay.move_id.sudo().write(move_vals)
 
     def action_post(self):
         """
-        Fallback: for payments that already have a move_id in draft (e.g. some
-        journal types create the move on payment creation), stamp the flags now
-        so _set_next_sequence() has them before super() triggers posting.
+        Fallback: for payments that already have a move_id in a non-posted state
+        (e.g. some journal types create the move on payment creation), stamp the
+        flags now so _set_next_sequence() has them before super() triggers posting.
 
         For payments without a move_id at this point, _generate_journal_entry()
-        above handles propagation when the move is created during
-        write({'state': 'in_process'}).
+        above handles propagation when the move is created.
+
+        sudo() — see note in _generate_journal_entry.
         """
         for payment in self:
-            if payment.move_id and payment.move_id.state == 'draft':
+            if payment.move_id and payment.move_id.state not in ('posted', 'cancel'):
                 move_vals = {
                     'is_official': payment.is_official,
                     'is_official_set': payment.is_official_set,
@@ -152,7 +195,7 @@ class AccountPayment(models.Model):
                     move_vals['is_mirror'] = True
                 if payment.source_move_ref:
                     move_vals['source_move_ref'] = payment.source_move_ref
-                payment.move_id.write(move_vals)
+                payment.move_id.sudo().write(move_vals)
 
         return super().action_post()
 

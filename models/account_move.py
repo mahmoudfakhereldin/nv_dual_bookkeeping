@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, AccessError
 
@@ -16,9 +16,10 @@ class AccountMove(models.Model):
         string='Official',
         default=lambda self: self._default_is_official(),
         tracking=True,
-        copy=False,
-        help="When True this transaction consumes the Official (O) sequence. "
-             "When False it consumes the Non-Official (NO) sequence. Locked after posting.",
+        copy=True,
+        help="When True this transaction uses the Official (O) sequence. "
+             "When False it uses the Non-Official (NO) sequence. Locked after posting. "
+             "Copied on duplicate/reversal so the stream is always preserved.",
     )
 
     is_official_set = fields.Boolean(
@@ -97,13 +98,20 @@ class AccountMove(models.Model):
     @api.model
     def _default_is_official(self):
         """
-        Official company: always True (all transactions are official there).
-        Other companies: read system parameter; default True when absent or 'True'.
+        Priority order:
+        1. Official Books company → always True.
+        2. Partner flag (from default_partner_id context, e.g. when opening a new
+           invoice pre-filled for a customer/vendor).
+        3. System parameter fallback.
         """
         if self.env.company.is_official_company:
             return True
+        partner_id = self.env.context.get('default_partner_id')
+        if partner_id:
+            partner = self.env['res.partner'].browse(partner_id)
+            return partner.is_official
         param = self.env['ir.config_parameter'].sudo().get_param(
-            'nv_dual_bookkeeping.default_is_official', 'True'
+            'nv_dual_bookkeeping.default_is_official', 'False'
         )
         return param.strip().lower() not in ('false', '0', '')
 
@@ -142,113 +150,142 @@ class AccountMove(models.Model):
                 move.show_dual_bookkeeping_ui = True
 
     # -------------------------------------------------------------------------
-    # Sequence overrides
+    # Partner → is_official onchange
     # -------------------------------------------------------------------------
 
-    def _get_sequence(self):
+    @api.onchange('partner_id')
+    def _onchange_partner_id_dual_bookkeeping(self):
+        """Sync is_official from the partner whenever partner changes on a draft
+        document in a non-official-books company."""
+        if (
+            self.partner_id
+            and self.state == 'draft'
+            and not self.company_id.is_official_company
+        ):
+            self.is_official = self.partner_id.is_official
+
+    # -------------------------------------------------------------------------
+    # Sequence overrides (Odoo 19 native sequence.mixin)
+    # -------------------------------------------------------------------------
+
+    def _get_last_sequence_domain(self, relaxed=False):
         """
-        Return the correct ir.sequence for this move based on the is_official flag.
+        EXTENDS account sequence.mixin.
 
-        This is an internal helper called by _set_next_sequence().  It is NOT a
-        framework hook — Odoo 18 removed the ir.sequence-based journal entry numbering
-        in favour of pattern matching.  We maintain our own ir.sequence records
-        (sequence_o_id / sequence_no_id on account.journal) and call next_by_id()
-        ourselves in _set_next_sequence().
+        Appends an is_official filter so that Odoo's pattern-matching always
+        searches within the same stream (O or NO). This gives Official and
+        Non-Official entries fully independent counters within the same journal.
+        """
+        where_string, param = super()._get_last_sequence_domain(relaxed)
+        if where_string and where_string != "WHERE FALSE":
+            where_string += " AND is_official = %(nv_is_official)s"
+            param['nv_is_official'] = self.is_official
+        return where_string, param
 
-        Official (O):
-          Returns journal_id.sequence_o_master_id, which resolves to:
-          - official_journal_id.sequence_o_id  (cross-company shared master), or
-          - local journal sequence_o_id         (fallback when no mapping)
+    def _get_last_sequence(self, relaxed=False, with_prefix=None):
+        """
+        EXTENDS sequence.mixin.
 
-        Non-Official (NO):
-          Returns journal_id.sequence_no_id (always local).
+        For Official entries that have an official_journal_id mapping, also
+        checks the official company's journal to find the true last sequence.
+        This prevents collisions when entries are posted directly in the
+        official company (bypassing the sync engine).
+
+        Example: Operating Co has INV-O/2026/0003. Someone posts INV-O/2026/0004
+        directly in the Official Co. Without this override the next Operating Co
+        entry would also get 0004. With this override it correctly gets 0005.
+        """
+        local_last = super()._get_last_sequence(relaxed=relaxed, with_prefix=with_prefix)
+
+        # Only applies to Official entries with a cross-company mapping
+        if not self.is_official:
+            return local_last
+        official_journal = self.journal_id.sudo().official_journal_id
+        if not official_journal:
+            return local_last
+
+        # Determine the sequence_prefix to search in the official journal
+        if with_prefix:
+            seq_prefix = with_prefix
+        else:
+            prefix = self.journal_id.seq_prefix_o
+            if not prefix:
+                return local_last
+            move_date = self.date or self.invoice_date or fields.Date.context_today(self)
+            seq_prefix = '%s/%04d/' % (prefix, move_date.year)
+
+        # Find the highest-numbered posted entry in the official company's journal
+        official_last_move = self.env['account.move'].sudo().search([
+            ('journal_id', '=', official_journal.id),
+            ('sequence_prefix', '=', seq_prefix),
+            ('state', '=', 'posted'),
+        ], order='sequence_number desc', limit=1)
+
+        if not official_last_move:
+            return local_last
+        if not local_last:
+            return official_last_move.name
+
+        # Parse the local sequence number and compare
+        try:
+            _, local_fmt = self._get_sequence_format_param(local_last)
+            local_seq_num = int(local_fmt.get('seq') or 0)
+        except Exception:
+            return local_last
+
+        if official_last_move.sequence_number > local_seq_num:
+            return official_last_move.name
+        return local_last
+
+    def _get_starting_sequence(self):
+        """
+        EXTENDS account sequence.mixin.
+
+        Seeds the very first name for each stream in a given journal/period.
+        Returns PREFIX/YYYY/0000 — Odoo increments to /0001 on the first post.
+
+        Falls back to super() if the journal has no prefix configured, so that
+        journals not set up for dual bookkeeping are completely unaffected.
         """
         self.ensure_one()
-        if self.is_official:
-            master_seq = self.journal_id.sequence_o_master_id
-            if not master_seq:
-                raise UserError(_(
-                    "Journal '%s' has no Official sequence configured. "
-                    "Please map an Official Company Journal in the journal settings."
-                ) % self.journal_id.name)
-            return master_seq
-        else:
-            no_seq = self.journal_id.sequence_no_id
-            if not no_seq:
-                raise UserError(_(
-                    "Journal '%s' has no Non-Official sequence configured. "
-                    "This sequence should have been created automatically. "
-                    "Please reinstall the module or contact your administrator."
-                ) % self.journal_id.name)
-            return no_seq
+        journal = self.journal_id
+        prefix = journal.seq_prefix_o if self.is_official else journal.seq_prefix_no
+        if not prefix:
+            return super()._get_starting_sequence()
+        move_date = self.date or self.invoice_date or fields.Date.context_today(self)
+        return '%s/%04d/0000' % (prefix, move_date.year)
 
     def _set_next_sequence(self):
         """
-        Assign the move name by consuming the correct ir.sequence via next_by_id().
+        EXTENDS sequence.mixin.
 
-        Odoo 18 calls this hook during posting (via sequence.mixin).  We bypass
-        the built-in pattern-matching approach and instead call next_by_id() on
-        our own ir.sequence records so that:
-        - Official entries share a single counter across companies (cross-company master).
-        - Non-Official entries use the local per-journal counter.
-        - Both produce gap-free, predictable names like BLOM-O/2026/0001.
-
-        Mirror entries are a special case: they represent the SAME transaction as
-        their source, so they must carry the identical name — no new sequence number
-        is consumed.  source_move_ref holds the source move's name (set by the sync
-        engine before creating the mirror).
-
-        Falls back to super() only if neither sequence is configured, ensuring
-        non-dual-bookkeeping journals are unaffected.
+        Mirror entries are the only special case: they represent the SAME
+        transaction as their source, so they reuse the source name without
+        consuming a new slot. Everything else is delegated to Odoo's native
+        locking/incrementing mechanism via super().
         """
         self.ensure_one()
-
-        # Mirror entries reuse the source move's name — never consume a new number.
-        # This is what keeps the Official sequence gap-free: source + mirror share
-        # the same slot (e.g. MISC-O/2026/0001) instead of each taking one.
         if self.is_mirror and self.source_move_ref:
             self.name = self.source_move_ref
             return
+        return super()._set_next_sequence()
 
-        # Only apply custom sequencing when the journal has dual sequences configured
-        if not (self.journal_id.sequence_o_id or self.journal_id.sequence_no_id):
-            return super()._set_next_sequence()
+    # -------------------------------------------------------------------------
+    # Create override — set is_official from partner when creating from SO/PO
+    # -------------------------------------------------------------------------
 
-        try:
-            seq = self._get_sequence()
-        except UserError:
-            raise
-        except Exception:
-            return super()._set_next_sequence()
-
-        # Pass the move date as context so date-range sequences pick the right period
-        seq_date = self.date or fields.Date.today()
-        seq_ctx = seq.sudo().with_context(ir_sequence_date=seq_date)
-
-        # Consume the next number, skipping any slot already claimed by a mirror
-        # entry.  This handles the edge case where journals were linked AFTER some
-        # posting had already occurred with independent sequences: the mirror
-        # reused the source name (e.g. INV-O/2026/0001) without incrementing the
-        # official-company sequence counter, so the counter is still "behind" the
-        # already-occupied name.  We keep consuming until we find a free slot.
-        _MAX_ATTEMPTS = 50
-        for _attempt in range(_MAX_ATTEMPTS):
-            name = seq_ctx.next_by_id()
-            taken = self.env['account.move'].sudo().search_count([
-                ('name', '=', name),
-                ('journal_id', '=', self.journal_id.id),
-                ('company_id', '=', self.company_id.id),
-                ('id', '!=', self.id),
-            ])
-            if not taken:
-                break
-        else:
-            raise UserError(_(
-                "Could not assign a unique sequence number to '%s' after %d attempts. "
-                "Please check the dual-bookkeeping sequence configuration."
-            ) % (self.journal_id.name, _MAX_ATTEMPTS))
-
-        self.name = name
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            # Only auto-set when not already supplied and not in Official Books company.
+            # This covers programmatic creation (SO/PO invoice, batch billing, etc.)
+            # where partner_id is in vals but is_official is not.
+            if 'is_official' not in vals and not self.env.company.is_official_company:
+                partner_id = vals.get('partner_id')
+                if partner_id:
+                    partner = self.env['res.partner'].browse(partner_id)
+                    vals['is_official'] = partner.is_official
+        return super().create(vals_list)
 
     # -------------------------------------------------------------------------
     # Write override — field locking

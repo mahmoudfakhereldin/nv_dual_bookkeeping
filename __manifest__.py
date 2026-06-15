@@ -5,7 +5,7 @@
     'author': 'Navybits',
     'license': 'OPL-1',
     'category': 'Accounting/Accounting',
-    'depends': ['account'],
+    'depends': ['accountant','nv_double_currencies'],
     'post_init_hook': 'post_init_hook',
 
     'data': [
@@ -21,12 +21,17 @@
         'wizard/views/account_payment_register_views.xml',
 
         # Model views
+        'views/res_partner_views.xml',
         'views/account_journal_views.xml',
         'views/account_move_views.xml',
         'views/account_payment_views.xml',
         'views/res_company_views.xml',
         'views/nv_sync_log_views.xml',
         'views/res_config_settings_views.xml',
+
+        # Report overrides (invoice layout + external layout patches)
+        'views/report_invoice.xml',
+        'views/report_layouts.xml',
 
         # Menus last (depend on actions defined in view files)
         'views/dual_bookkeeping_menus.xml',

@@ -1,4 +1,5 @@
 import logging
+from datetime import date as _date
 from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
@@ -11,41 +12,18 @@ class AccountJournal(models.Model):
     # Fields
     # -------------------------------------------------------------------------
 
-    sequence_no_id = fields.Many2one(
-        comodel_name='ir.sequence',
-        string='Non-Official Sequence',
-        readonly=True,
-        copy=False,
-        help="Auto-created sequence used for Non-Official (NO) transactions in this journal.",
-    )
-
-    # In Odoo 18 account.journal no longer carries a sequence_id pointing to ir.sequence
-    # (that field was removed in Odoo 16).  We therefore maintain our own ir.sequence
-    # for Official transactions — sequence_o_id — exactly as we do for NO.
-    sequence_o_id = fields.Many2one(
-        comodel_name='ir.sequence',
-        string='Official Sequence',
-        readonly=True,
-        copy=False,
-        help=(
-            "Auto-created sequence used for Official (O) transactions when this "
-            "journal has no official_journal_id mapping. Acts as the LOCAL master."
-        ),
-    )
-
     official_journal_id = fields.Many2one(
         comodel_name='account.journal',
         string='Official Company Journal',
         copy=False,
         help=(
-            "Mirror journal in the official company. Its sequence_o_id is the MASTER "
-            "sequence for all Official (O) transactions posted in this journal from "
-            "any company. Leave empty to fall back to this journal's own sequence_o_id."
+            "Mirror journal in the official company. Leave empty if this journal "
+            "is not used for Official (O) transactions that sync to the official company."
         ),
     )
 
     # Exposed as a flat field so view domains can reference it directly without
-    # dotted traversal (company_id.official_company_id fails in Odoo 18 domains).
+    # dotted traversal (company_id.official_company_id fails in Odoo 19 domains).
     journal_official_company_id = fields.Many2one(
         comodel_name='res.company',
         string='Official Company (resolved)',
@@ -53,161 +31,97 @@ class AccountJournal(models.Model):
         store=False,
     )
 
-    sequence_o_master_id = fields.Many2one(
-        comodel_name='ir.sequence',
-        string='Official Sequence Master',
-        compute='_compute_sequence_o_master',
-        store=False,
+    seq_prefix_o = fields.Char(
+        string='Official Sequence Prefix',
         help=(
-            "The master ir.sequence to consume for Official transactions. "
-            "Resolves to the official company journal's sequence_o_id when mapped, "
-            "otherwise falls back to this journal's own sequence_o_id."
+            'Prefix code for Official entries (e.g. BANK-O). '
+            'Entries will be numbered BANK-O/2026/0001.'
         ),
     )
 
-    has_dual_sequence = fields.Boolean(
-        string='Has Dual Sequence',
-        compute='_compute_has_dual_sequence',
+    seq_prefix_no = fields.Char(
+        string='Non-Official Sequence Prefix',
+        help=(
+            'Prefix code for Non-Official entries (e.g. BANK-NO). '
+            'Entries will be numbered BANK-NO/2026/0001.'
+        ),
+    )
+
+    seq_preview_o = fields.Char(
+        string='Next Official Entry',
+        compute='_compute_seq_previews',
         store=False,
-        help="True when both Official and Non-Official sequences exist for this journal.",
+    )
+
+    seq_preview_no = fields.Char(
+        string='Next Non-Official Entry',
+        compute='_compute_seq_previews',
+        store=False,
     )
 
     # -------------------------------------------------------------------------
     # Computed fields
     # -------------------------------------------------------------------------
 
-    @api.depends('official_journal_id', 'official_journal_id.sequence_o_id', 'sequence_o_id')
-    def _compute_sequence_o_master(self):
-        """
-        Resolve the master Official sequence.
-
-        When official_journal_id is set, the official company journal's sequence_o_id
-        is the shared master — all operating companies borrow from it, ensuring a single
-        gap-free counter regardless of which company posts first.
-
-        When no official_journal_id is set, fall back to the local sequence_o_id.
-        """
+    @api.depends('seq_prefix_o', 'seq_prefix_no')
+    def _compute_seq_previews(self):
+        year = _date.today().year
         for journal in self:
-            if journal.official_journal_id and journal.official_journal_id.sequence_o_id:
-                journal.sequence_o_master_id = journal.official_journal_id.sequence_o_id
-            else:
-                journal.sequence_o_master_id = journal.sequence_o_id
-
-    @api.depends('sequence_no_id', 'sequence_o_id')
-    def _compute_has_dual_sequence(self):
-        for journal in self:
-            journal.has_dual_sequence = bool(journal.sequence_no_id and journal.sequence_o_id)
-
-    # -------------------------------------------------------------------------
-    # Sequence creation helpers
-    # -------------------------------------------------------------------------
-
-    def _create_no_sequence(self):
-        """
-        Create a Non-Official ir.sequence for this journal and link it to
-        sequence_no_id.  Safe to call multiple times — skips if already set.
-        Uses sudo() so it works during post_init_hook regardless of user rights.
-        """
-        self.ensure_one()
-        if self.sequence_no_id:
-            return  # Already exists — nothing to do
-
-        code = (self.code or 'JNL').upper()
-        seq = self.env['ir.sequence'].sudo().create({
-            'name': '%s (Non-Official)' % self.name,
-            'code': 'account.journal.no.new',
-            'prefix': '%s-NO/%%(year)s/' % code,
-            'padding': 4,
-            'company_id': self.company_id.id,
-            'use_date_range': True,
-        })
-        # Update code to include the sequence id for global uniqueness
-        seq.sudo().write({'code': 'account.journal.no.%d' % seq.id})
-        self.sudo().write({'sequence_no_id': seq.id})
-        _logger.debug(
-            "nv_dual_bookkeeping: Created NO sequence '%s' for journal '%s' (company: %s)",
-            seq.name, self.name, self.company_id.name,
-        )
-
-    def _create_o_sequence(self):
-        """
-        Create an Official ir.sequence for this journal and link it to
-        sequence_o_id.  Safe to call multiple times — skips if already set.
-        """
-        self.ensure_one()
-        if self.sequence_o_id:
-            return  # Already exists — nothing to do
-
-        code = (self.code or 'JNL').upper()
-        seq = self.env['ir.sequence'].sudo().create({
-            'name': '%s (Official)' % self.name,
-            'code': 'account.journal.o.new',
-            'prefix': '%s-O/%%(year)s/' % code,
-            'padding': 4,
-            'company_id': self.company_id.id,
-            'use_date_range': True,
-        })
-        seq.sudo().write({'code': 'account.journal.o.%d' % seq.id})
-        self.sudo().write({'sequence_o_id': seq.id})
-        _logger.debug(
-            "nv_dual_bookkeeping: Created O sequence '%s' for journal '%s' (company: %s)",
-            seq.name, self.name, self.company_id.name,
-        )
-
-    def _create_dual_sequences(self):
-        """Convenience: create both O and NO sequences in one call."""
-        self._create_o_sequence()
-        self._create_no_sequence()
-
-    def _update_sequences(self):
-        """
-        Synchronise both sequence names and prefixes whenever the journal
-        code or name changes.  Creates missing sequences if needed.
-        """
-        self.ensure_one()
-        code = (self.code or 'JNL').upper()
-
-        if self.sequence_no_id:
-            self.sequence_no_id.sudo().write({
-                'name': '%s (Non-Official)' % self.name,
-                'prefix': '%s-NO/%%(year)s/' % code,
-            })
-        else:
-            self._create_no_sequence()
-
-        if self.sequence_o_id:
-            self.sequence_o_id.sudo().write({
-                'name': '%s (Official)' % self.name,
-                'prefix': '%s-O/%%(year)s/' % code,
-            })
-        else:
-            self._create_o_sequence()
+            for result_field, prefix_val, is_official in [
+                ('seq_preview_o', journal.seq_prefix_o, True),
+                ('seq_preview_no', journal.seq_prefix_no, False),
+            ]:
+                if not prefix_val:
+                    journal[result_field] = ''
+                    continue
+                seq_prefix = '%s/%04d/' % (prefix_val, year)
+                last_move = self.env['account.move'].sudo().search([
+                    ('journal_id', '=', journal.id),
+                    ('is_official', '=', is_official),
+                    ('sequence_prefix', '=', seq_prefix),
+                    ('state', '=', 'posted'),
+                ], order='sequence_number desc', limit=1)
+                next_num = (last_move.sequence_number + 1) if last_move else 1
+                journal[result_field] = '%s%04d' % (seq_prefix, next_num)
 
     # -------------------------------------------------------------------------
-    # Stat button actions
+    # Cross-company read helpers
     # -------------------------------------------------------------------------
 
-    def action_open_no_sequence(self):
-        self.ensure_one()
-        return {
-            'type': 'ir.actions.act_window',
-            'name': 'Non-Official Sequence',
-            'res_model': 'ir.sequence',
-            'res_id': self.sequence_no_id.id,
-            'view_mode': 'form',
-            'target': 'current',
-        }
+    def _official_journal_company_ctx(self):
+        """Return context dict that adds the official companies to
+        allowed_company_ids so cross-company official_journal_id Many2one
+        values can be resolved without triggering record-rule access errors."""
+        if not self.ids:
+            return None
+        self.env.cr.execute("""
+            SELECT DISTINCT j2.company_id
+              FROM account_journal j1
+              JOIN account_journal j2 ON j2.id = j1.official_journal_id
+             WHERE j1.id IN %s
+        """, [tuple(self.ids)])
+        official_cos = {r[0] for r in self.env.cr.fetchall()}
+        if not official_cos:
+            return None
+        current = set(self.env.context.get('allowed_company_ids') or [self.env.company.id])
+        extra = official_cos - current
+        if not extra:
+            return None
+        return {'allowed_company_ids': list(current | extra)}
 
-    def action_open_o_sequence(self):
-        self.ensure_one()
-        return {
-            'type': 'ir.actions.act_window',
-            'name': 'Official Sequence',
-            'res_model': 'ir.sequence',
-            'res_id': self.sequence_o_master_id.id,
-            'view_mode': 'form',
-            'target': 'current',
-        }
+    def read(self, fields=None, load='_classic_read'):
+        if not self.env.su and (fields is None or 'official_journal_id' in (fields or [])):
+            ctx = self._official_journal_company_ctx()
+            if ctx:
+                return self.with_context(**ctx).read(fields=fields, load=load)
+        return super().read(fields=fields, load=load)
+
+    def web_read(self, specification):
+        if not self.env.su and 'official_journal_id' in specification:
+            ctx = self._official_journal_company_ctx()
+            if ctx:
+                return self.with_context(**ctx).web_read(specification)
+        return super().web_read(specification)
 
     # -------------------------------------------------------------------------
     # ORM overrides
@@ -217,13 +131,14 @@ class AccountJournal(models.Model):
     def create(self, vals_list):
         journals = super().create(vals_list)
         for journal in journals:
-            journal._create_dual_sequences()
+            # Auto-populate prefixes when not explicitly provided
+            updates = {}
+            if not journal.seq_prefix_o:
+                code = (journal.code or 'JNL').upper()
+                updates['seq_prefix_o'] = '%s-O' % code
+            if not journal.seq_prefix_no:
+                code = (journal.code or 'JNL').upper()
+                updates['seq_prefix_no'] = '%s-NO' % code
+            if updates:
+                journal.sudo().write(updates)
         return journals
-
-    def write(self, vals):
-        result = super().write(vals)
-        # Keep sequence metadata in sync when the journal's identity changes
-        if 'code' in vals or 'name' in vals:
-            for journal in self:
-                journal._update_sequences()
-        return result

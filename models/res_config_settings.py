@@ -67,3 +67,53 @@ class ResConfigSettings(models.TransientModel):
             "duplicate entries. Recommended for strict dual-bookkeeping setups."
         ),
     )
+
+    # -------------------------------------------------------------------------
+    # Invoice Layout — stored on res.company via related
+    # -------------------------------------------------------------------------
+
+    # Official
+    official_show_header_logo = fields.Boolean(
+        related='company_id.official_show_header_logo', readonly=False,
+    )
+    official_show_company_details = fields.Boolean(
+        related='company_id.official_show_company_details', readonly=False,
+    )
+    official_show_company_vat = fields.Boolean(
+        related='company_id.official_show_company_vat', readonly=False,
+    )
+    official_show_customer_vat = fields.Boolean(
+        related='company_id.official_show_customer_vat', readonly=False,
+    )
+    official_show_customer_email = fields.Boolean(
+        related='company_id.official_show_customer_email', readonly=False,
+    )
+    official_show_customer_phone = fields.Boolean(
+        related='company_id.official_show_customer_phone', readonly=False,
+    )
+    official_show_footer = fields.Boolean(
+        related='company_id.official_show_footer', readonly=False,
+    )
+
+    # Non-Official
+    non_official_show_header_logo = fields.Boolean(
+        related='company_id.non_official_show_header_logo', readonly=False,
+    )
+    non_official_show_company_details = fields.Boolean(
+        related='company_id.non_official_show_company_details', readonly=False,
+    )
+    non_official_show_company_vat = fields.Boolean(
+        related='company_id.non_official_show_company_vat', readonly=False,
+    )
+    non_official_show_customer_vat = fields.Boolean(
+        related='company_id.non_official_show_customer_vat', readonly=False,
+    )
+    non_official_show_customer_email = fields.Boolean(
+        related='company_id.non_official_show_customer_email', readonly=False,
+    )
+    non_official_show_customer_phone = fields.Boolean(
+        related='company_id.non_official_show_customer_phone', readonly=False,
+    )
+    non_official_show_footer = fields.Boolean(
+        related='company_id.non_official_show_footer', readonly=False,
+    )

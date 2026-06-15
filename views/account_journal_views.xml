@@ -11,63 +11,28 @@
         <field name="inherit_id" ref="account.view_account_journal_form"/>
         <field name="arch" type="xml">
 
-            <!-- Stat buttons: NO Sequence and O Sequence -->
-            <xpath expr="//div[hasclass('oe_button_box')]" position="inside">
-
-                <button class="oe_stat_button"
-                        type="object"
-                        name="action_open_no_sequence"
-                        icon="fa-list-ol"
-                        invisible="not sequence_no_id">
-                    <div class="o_stat_info">
-                        <span class="o_stat_text">NO Sequence</span>
-                        <field name="sequence_no_id" readonly="1" nolabel="1"
-                               options="{'no_open': True, 'no_create': True}"/>
-                    </div>
-                </button>
-
-                <button class="oe_stat_button"
-                        type="object"
-                        name="action_open_o_sequence"
-                        icon="fa-bookmark"
-                        invisible="not sequence_o_master_id">
-                    <div class="o_stat_info">
-                        <span class="o_stat_text">O Sequence</span>
-                        <field name="sequence_o_master_id" readonly="1" nolabel="1"
-                               options="{'no_open': True, 'no_create': True}"/>
-                    </div>
-                </button>
-
-            </xpath>
-
             <!-- Dual Bookkeeping notebook page -->
             <xpath expr="//notebook" position="inside">
                 <page string="Dual Bookkeeping" name="dual_bookkeeping">
 
                     <group string="Official Journal Mapping">
                         <group>
-                            <!-- Invisible helper so the domain below can reference a flat field -->
                             <field name="journal_official_company_id" invisible="1"/>
                             <field name="official_journal_id"
                                    domain="[('company_id', '=', journal_official_company_id)]"
                                    options="{'no_create': True}"
-                                   help="Select the corresponding journal in the official company. Its sequence_o_id will be used as the master Official sequence for all companies."/>
-                            <field name="has_dual_sequence" readonly="1"/>
+                                   help="Select the corresponding journal in the official company. Its Official sequence will be the master counter shared across all companies."/>
                         </group>
                     </group>
 
-                    <group string="Sequence Details" col="2">
-                        <group string="Official (O) Sequence">
-                            <field name="sequence_o_id" readonly="1"
-                                   string="Local O Sequence"
-                                   options="{'no_open': False, 'no_create': True}"/>
-                            <field name="sequence_o_master_id" readonly="1"
-                                   string="Active O Master"
-                                   options="{'no_open': False, 'no_create': True}"/>
+                    <group string="Sequences" col="2">
+                        <group string="Official (O)">
+                            <field name="seq_prefix_o" placeholder="e.g. BANK-O"/>
+                            <field name="seq_preview_o" readonly="1"/>
                         </group>
-                        <group string="Non-Official (NO) Sequence">
-                            <field name="sequence_no_id" readonly="1"
-                                   options="{'no_open': False, 'no_create': True}"/>
+                        <group string="Non-Official (NO)">
+                            <field name="seq_prefix_no" placeholder="e.g. BANK-NO"/>
+                            <field name="seq_preview_no" readonly="1"/>
                         </group>
                     </group>
 

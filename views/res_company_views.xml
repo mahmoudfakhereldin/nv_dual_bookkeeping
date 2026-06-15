@@ -25,10 +25,12 @@
             </xpath>
 
             <!-- official_company_id field — added in the General Information tab -->
-            <xpath expr="//field[@name='name']" position="after">
-                <field name="official_company_id"
+            <xpath expr="//notebook" position="before">
+                <group>
+                    <field name="official_company_id"
                        options="{'no_create': True}"
                        help="Official transactions from this company will be mirrored to the selected company."/>
+                </group>
             </xpath>
 
         </field>
