@@ -52,6 +52,12 @@ class ResCompany(models.Model):
         for company in self:
             company.is_official_company = bool(company.mirror_source_company_ids)
 
+    def _get_shared_company_ids(self):
+        """Companies that should share records (products, customers) with this one:
+        itself, its paired Official company, and any company that mirrors to it."""
+        self.ensure_one()
+        return self | self.official_company_id | self.mirror_source_company_ids
+
     # -------------------------------------------------------------------------
     # Invoice Layout — per-company visibility settings
     # -------------------------------------------------------------------------
